@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
@@ -16,22 +16,24 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o server cmd/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server ./cmd/main.go
 
 # Final stage
-FROM alpine:3.18
+FROM alpine:latest
 
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates
+RUN apk --no-cache add ca-certificates tzdata
 
 # Copy binary from builder
 COPY --from=builder /app/server .
-COPY --from=builder /app/.env .
+
+# Copy migrations
+COPY --from=builder /app/internal/database/migrations ./internal/database/migrations
 
 # Expose port
 EXPOSE 8080
 
 # Run the application
-CMD ["./server"] 
+CMD ["./server"]
