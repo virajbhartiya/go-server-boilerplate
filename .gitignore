@@ -20,7 +20,6 @@ go.work
 
 # Environment files
 .env
-.env.*
 
 # IDE specific files
 .idea/

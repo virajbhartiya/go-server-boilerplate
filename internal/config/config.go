@@ -1,163 +1,181 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/BurntSushi/toml"
 )
 
+// Config holds the application configuration
 type Config struct {
 	// Server configuration
-	Port            string
-	Environment     string
-	ShutdownTimeout time.Duration
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	IdleTimeout     time.Duration
+	Server struct {
+		Port            string        `toml:"port"`
+		Environment     string        `toml:"environment"`
+		ShutdownTimeout time.Duration `toml:"shutdown_timeout"`
+		ReadTimeout     time.Duration `toml:"read_timeout"`
+		WriteTimeout    time.Duration `toml:"write_timeout"`
+		IdleTimeout     time.Duration `toml:"idle_timeout"`
+		SSLEnabled      bool          `toml:"ssl_enabled"`
+		SSLCertFile     string        `toml:"ssl_cert_file"`
+		SSLKeyFile      string        `toml:"ssl_key_file"`
+	} `toml:"server"`
 
 	// Database configuration
-	DatabaseURL          string
-	MaxDBConnections     int
-	MaxDBIdleConnections int
-	DBConnMaxLifetime    time.Duration
+	Database struct {
+		URL                string        `toml:"url"`
+		MaxConnections     int           `toml:"max_connections"`
+		MaxIdleConnections int           `toml:"max_idle_connections"`
+		ConnMaxLifetime    time.Duration `toml:"conn_max_lifetime"`
+		AutoMigrate        bool          `toml:"auto_migrate"`
+		LogQueries         bool          `toml:"log_queries"`
+		PreparedStatements bool          `toml:"prepared_statements"`
+	} `toml:"database"`
 
-	// Security
-	JWTSecret      string
-	JWTExpiryHours int
-	AllowedOrigins []string
-	TrustedProxies []string
-	SSLEnabled     bool
-	SSLCertFile    string
-	SSLKeyFile     string
+	// GORM configuration
+	GORM struct {
+		LogLevel               string `toml:"log_level"`
+		PreparedStatements     bool   `toml:"prepared_stmt"`
+		SkipDefaultTransaction bool   `toml:"skip_default_transaction"`
+	} `toml:"gorm"`
 
-	// Rate limiting
-	RateLimitRequests int
-	RateLimitDuration time.Duration
+	// API configuration
+	API struct {
+		CorsEnabled        bool          `toml:"cors_enabled"`
+		AllowedOrigins     []string      `toml:"allowed_origins"`
+		RateLimiterEnabled bool          `toml:"rate_limiter_enabled"`
+		RateLimitRequests  int           `toml:"rate_limit_requests"`
+		RateLimitDuration  time.Duration `toml:"rate_limit_duration"`
+	} `toml:"api"`
 
-	// Logging
-	LogLevel string
-	LogJSON  bool
+	// Authentication configuration
+	Auth struct {
+		JWTSecret           string        `toml:"jwt_secret"`
+		JWTExpiryHours      int           `toml:"jwt_expiry_hours"`
+		RefreshTokenEnabled bool          `toml:"refresh_token_enabled"`
+		RefreshTokenExpiry  time.Duration `toml:"refresh_token_expiry"`
+	} `toml:"auth"`
 
-	// Monitoring
-	MetricsEnabled bool
-	MetricsPath    string
+	// Logging configuration
+	Logging struct {
+		Level             string `toml:"level"`
+		Format            string `toml:"format"`
+		CallerEnabled     bool   `toml:"caller_enabled"`
+		StacktraceEnabled bool   `toml:"stacktrace_enabled"`
+	} `toml:"logging"`
+
+	// Cache configuration
+	Cache struct {
+		Enabled    bool          `toml:"enabled"`
+		RedisURL   string        `toml:"redis_url"`
+		DefaultTTL time.Duration `toml:"default_ttl"`
+	} `toml:"cache"`
+
+	// Feature flags
+	Features struct {
+		Tracing        bool `toml:"tracing"`
+		BackgroundJobs bool `toml:"background_jobs"`
+	} `toml:"features"`
+
+	// Redis configuration
+	Redis struct {
+		Host     string `toml:"host"`
+		Port     string `toml:"port"`
+		Password string `toml:"password"`
+		DB       int    `toml:"db"`
+	} `toml:"redis"`
 }
 
-// Load reads configuration from environment variables
-func Load() *Config {
-	// Load .env file if it exists
-	godotenv.Load()
-
-	config := &Config{
-		// Server
-		Port:            getEnv("PORT", "8080"),
-		Environment:     getEnv("ENVIRONMENT", "development"),
-		ShutdownTimeout: getDurationEnv("SHUTDOWN_TIMEOUT", 15*time.Second),
-		ReadTimeout:     getDurationEnv("READ_TIMEOUT", 10*time.Second),
-		WriteTimeout:    getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
-		IdleTimeout:     getDurationEnv("IDLE_TIMEOUT", 60*time.Second),
-
-		// Database
-		DatabaseURL:          getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"),
-		MaxDBConnections:     getIntEnv("MAX_DB_CONNECTIONS", 20),
-		MaxDBIdleConnections: getIntEnv("MAX_DB_IDLE_CONNECTIONS", 5),
-		DBConnMaxLifetime:    getDurationEnv("DB_CONN_MAX_LIFETIME", 5*time.Minute),
-
-		// Security
-		JWTSecret:      getEnv("JWT_SECRET", "your-secret-key"),
-		JWTExpiryHours: getIntEnv("JWT_EXPIRY_HOURS", 24),
-		AllowedOrigins: getSliceEnv("ALLOWED_ORIGINS", []string{"*"}),
-		TrustedProxies: getSliceEnv("TRUSTED_PROXIES", []string{"127.0.0.1"}),
-		SSLEnabled:     getBoolEnv("SSL_ENABLED", false),
-		SSLCertFile:    getEnv("SSL_CERT_FILE", ""),
-		SSLKeyFile:     getEnv("SSL_KEY_FILE", ""),
-
-		// Rate limiting
-		RateLimitRequests: getIntEnv("RATE_LIMIT_REQUESTS", 100),
-		RateLimitDuration: getDurationEnv("RATE_LIMIT_DURATION", time.Minute),
-
-		// Logging
-		LogLevel: getEnv("LOG_LEVEL", "info"),
-		LogJSON:  getBoolEnv("LOG_JSON", false),
-
-		// Monitoring
-		MetricsEnabled: getBoolEnv("METRICS_ENABLED", true),
-		MetricsPath:    getEnv("METRICS_PATH", "/metrics"),
-	}
-
-	return config
-}
-
-// Helper functions to get environment variables with default values
-func getEnv(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return defaultValue
-}
-
-func getIntEnv(key string, defaultValue int) int {
-	if value, exists := os.LookupEnv(key); exists {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
+func LoadConfig(env string) (*Config, error) {
+	var config Config
+	baseConfigPath := filepath.Join("configs", "config.toml")
+	if _, err := os.Stat(baseConfigPath); err == nil {
+		if _, err := toml.DecodeFile(baseConfigPath, &config); err != nil {
+			return nil, fmt.Errorf("failed to load base config: %w", err)
 		}
 	}
-	return defaultValue
-}
-
-func getBoolEnv(key string, defaultValue bool) bool {
-	if value, exists := os.LookupEnv(key); exists {
-		if boolValue, err := strconv.ParseBool(value); err == nil {
-			return boolValue
+	envConfigPath := filepath.Join("configs", fmt.Sprintf("%s.toml", env))
+	if _, err := os.Stat(envConfigPath); err == nil {
+		if _, err := toml.DecodeFile(envConfigPath, &config); err != nil {
+			return nil, fmt.Errorf("failed to load environment config: %w", err)
 		}
 	}
-	return defaultValue
+	overrideWithEnv(&config)
+	return &config, nil
 }
 
-func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
-	if value, exists := os.LookupEnv(key); exists {
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
+// overrideWithEnv overrides configuration values with environment variables
+func overrideWithEnv(config *Config) {
+	setEnvString := func(envKey string, field *string) {
+		if value, exists := os.LookupEnv(envKey); exists {
+			*field = value
 		}
 	}
-	return defaultValue
-}
-
-func getSliceEnv(key string, defaultValue []string) []string {
-	if value, exists := os.LookupEnv(key); exists && value != "" {
-		return split(value)
-	}
-	return defaultValue
-}
-
-func split(s string) []string {
-	var result []string
-	current := ""
-	inQuotes := false
-
-	for _, char := range s {
-		switch char {
-		case '"':
-			inQuotes = !inQuotes
-		case ',':
-			if !inQuotes {
-				if current != "" {
-					result = append(result, current)
-					current = ""
-				}
-			} else {
-				current += string(char)
+	setEnvInt := func(envKey string, field *int) {
+		if value, exists := os.LookupEnv(envKey); exists {
+			if intValue, err := strconv.Atoi(value); err == nil {
+				*field = intValue
 			}
-		default:
-			current += string(char)
 		}
 	}
-
-	if current != "" {
-		result = append(result, current)
+	setEnvBool := func(envKey string, field *bool) {
+		if value, exists := os.LookupEnv(envKey); exists {
+			if boolValue, err := strconv.ParseBool(value); err == nil {
+				*field = boolValue
+			}
+		}
 	}
-
-	return result
+	setEnvDuration := func(envKey string, field *time.Duration) {
+		if value, exists := os.LookupEnv(envKey); exists {
+			if duration, err := time.ParseDuration(value); err == nil {
+				*field = duration
+			}
+		}
+	}
+	setEnvStringSlice := func(envKey string, field *[]string) {
+		if value, exists := os.LookupEnv(envKey); exists && value != "" {
+			*field = strings.Split(value, ",")
+		}
+	}
+	setEnvString("PORT", &config.Server.Port)
+	setEnvString("ENVIRONMENT", &config.Server.Environment)
+	setEnvDuration("SHUTDOWN_TIMEOUT", &config.Server.ShutdownTimeout)
+	setEnvDuration("READ_TIMEOUT", &config.Server.ReadTimeout)
+	setEnvDuration("WRITE_TIMEOUT", &config.Server.WriteTimeout)
+	setEnvDuration("IDLE_TIMEOUT", &config.Server.IdleTimeout)
+	setEnvBool("SSL_ENABLED", &config.Server.SSLEnabled)
+	setEnvString("SSL_CERT_FILE", &config.Server.SSLCertFile)
+	setEnvString("SSL_KEY_FILE", &config.Server.SSLKeyFile)
+	setEnvString("DATABASE_URL", &config.Database.URL)
+	setEnvInt("DB_MAX_CONNECTIONS", &config.Database.MaxConnections)
+	setEnvInt("DB_MAX_IDLE_CONNECTIONS", &config.Database.MaxIdleConnections)
+	setEnvDuration("DB_CONN_MAX_LIFETIME", &config.Database.ConnMaxLifetime)
+	setEnvBool("DB_AUTO_MIGRATE", &config.Database.AutoMigrate)
+	setEnvBool("DB_LOG_QUERIES", &config.Database.LogQueries)
+	setEnvBool("DB_PREPARED_STATEMENTS", &config.Database.PreparedStatements)
+	setEnvString("JWT_SECRET", &config.Auth.JWTSecret)
+	setEnvInt("JWT_EXPIRY_HOURS", &config.Auth.JWTExpiryHours)
+	setEnvBool("REFRESH_TOKEN_ENABLED", &config.Auth.RefreshTokenEnabled)
+	setEnvDuration("REFRESH_TOKEN_EXPIRY", &config.Auth.RefreshTokenExpiry)
+	setEnvBool("CORS_ENABLED", &config.API.CorsEnabled)
+	setEnvStringSlice("ALLOWED_ORIGINS", &config.API.AllowedOrigins)
+	setEnvBool("RATE_LIMITER_ENABLED", &config.API.RateLimiterEnabled)
+	setEnvInt("RATE_LIMIT_REQUESTS", &config.API.RateLimitRequests)
+	setEnvDuration("RATE_LIMIT_DURATION", &config.API.RateLimitDuration)
+	setEnvString("LOG_LEVEL", &config.Logging.Level)
+	setEnvString("LOG_FORMAT", &config.Logging.Format)
+	setEnvBool("ENABLE_CACHE", &config.Cache.Enabled)
+	setEnvString("REDIS_URL", &config.Cache.RedisURL)
+	setEnvDuration("CACHE_TTL", &config.Cache.DefaultTTL)
+	setEnvBool("ENABLE_TRACING", &config.Features.Tracing)
+	setEnvBool("ENABLE_BACKGROUND_JOBS", &config.Features.BackgroundJobs)
+	setEnvString("REDIS_HOST", &config.Redis.Host)
+	setEnvString("REDIS_PORT", &config.Redis.Port)
+	setEnvString("REDIS_PASSWORD", &config.Redis.Password)
+	setEnvInt("REDIS_DB", &config.Redis.DB)
 }

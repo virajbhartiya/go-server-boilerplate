@@ -1,0 +1,58 @@
+[server]
+port = "8080"
+environment = "development"
+shutdown_timeout = "10s"
+read_timeout = "5s"
+write_timeout = "5s"
+idle_timeout = "60s"
+ssl_enabled = false
+ssl_cert_file = ""
+ssl_key_file = ""
+
+[database]
+url = "postgresql://postgres:postgres@localhost:5432/app?sslmode=disable"
+max_connections = 10
+max_idle_connections = 5
+conn_max_lifetime = "1h"
+auto_migrate = true
+log_queries = false
+prepared_statements = false
+
+[gorm]
+log_level = "info"
+prepared_stmt = false
+skip_default_transaction = false
+
+[api]
+cors_enabled = true
+allowed_origins = ["*"]
+rate_limiter_enabled = false
+rate_limit_requests = 100
+rate_limit_duration = "1m"
+
+[auth]
+jwt_secret = "your_jwt_secret"
+jwt_expiry_hours = 24
+refresh_token_enabled = true
+refresh_token_expiry = "168h"
+
+[logging]
+level = "info"
+format = "console"
+caller_enabled = false
+stacktrace_enabled = false
+
+[cache]
+enabled = true
+redis_url = "redis://localhost:6379/0"
+default_ttl = "1h"
+
+[features]
+tracing = false
+background_jobs = false
+
+[redis]
+host = "localhost"
+port = "6379"
+password = ""
+db = 0
