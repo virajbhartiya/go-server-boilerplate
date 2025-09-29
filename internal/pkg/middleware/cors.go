@@ -1,37 +1,19 @@
 package middleware
 
 import (
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
+	"net/http"
+
+	corspkg "github.com/rs/cors"
 )
 
-// CorsMiddleware configures CORS for the application
-func CorsMiddleware(allowedOrigins []string) gin.HandlerFunc {
-	// Default configuration
-	config := cors.DefaultConfig()
-
-	// Set allowed origins
-	if len(allowedOrigins) == 1 && allowedOrigins[0] == "*" {
-		config.AllowAllOrigins = true
-	} else {
-		config.AllowOrigins = allowedOrigins
-	}
-
-	// Allow common methods and headers
-	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
-	config.AllowHeaders = []string{
-		"Origin",
-		"Content-Type",
-		"Content-Length",
-		"Accept",
-		"Accept-Encoding",
-		"Authorization",
-		"X-Request-ID",
-	}
-
-	// Allow credentials and expose headers
-	config.AllowCredentials = true
-	config.ExposeHeaders = []string{"Content-Length", "Content-Type"}
-
-	return cors.New(config)
+// Cors wraps rs/cors with allowed origins
+func Cors(next http.Handler, allowedOrigins []string) http.Handler {
+	c := corspkg.New(corspkg.Options{
+		AllowedOrigins:   allowedOrigins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Origin", "Content-Type", "Content-Length", "Accept", "Accept-Encoding", "Authorization", "X-Request-ID"},
+		ExposedHeaders:   []string{"Content-Length", "Content-Type"},
+		AllowCredentials: true,
+	})
+	return c.Handler(next)
 }

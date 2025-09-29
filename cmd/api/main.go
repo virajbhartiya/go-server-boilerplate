@@ -10,15 +10,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
 
+	"go-server-boilerplate/internal/app/services"
 	"go-server-boilerplate/internal/config"
 	"go-server-boilerplate/internal/infrastructure/auth"
 	"go-server-boilerplate/internal/infrastructure/database"
+	"go-server-boilerplate/internal/infrastructure/database/models"
 	"go-server-boilerplate/internal/infrastructure/jobs"
 
 	"go-server-boilerplate/internal/interfaces/api"
@@ -67,10 +67,7 @@ func main() {
 		zap.String("port", cfg.Server.Port),
 	)
 
-	// Set Gin mode
-	if env == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	// No Gin mode; using Gorilla Mux with net/http
 
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -84,7 +81,7 @@ func main() {
 		ConnMaxLifetime:    cfg.Database.ConnMaxLifetime,
 		AutoMigrate:        cfg.Database.AutoMigrate,
 		LogQueries:         cfg.Database.LogQueries,
-		PreparedStatements: cfg.GORM.PreparedStatements,
+		PreparedStatements: cfg.Database.PreparedStatements,
 	}
 
 	db, err := database.Connect(dbConfig)
@@ -103,6 +100,16 @@ func main() {
 
 	// Initialize auth middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtManager)
+
+	// Initialize repositories
+	userRepo := database.NewGormRepository[models.User](db)
+
+	// Initialize services
+	userService := services.NewBaseService[models.User](userRepo)
+
+	// Initialize handlers
+	userHandler := api.NewUserHandler(userService)
+	authHandler := api.NewAuthHandler(userService, jwtManager)
 
 	// Initialize background job system if enabled
 	var jobDispatcher *jobs.Dispatcher
@@ -127,44 +134,35 @@ func main() {
 	var wg sync.WaitGroup
 
 	// Initialize router
-	router := gin.New()
+	router := mux.NewRouter()
 
-	// Add middleware
-	router.Use(middleware.Recovery())
-	router.Use(middleware.RequestID())
+	// Build middleware chain for net/http
+	var handler http.Handler = router
 
-	// Add API rate limiter if enabled
-	if cfg.API.RateLimiterEnabled {
-		router.Use(middleware.RateLimiter(cfg.API.RateLimitRequests, cfg.API.RateLimitDuration))
-	}
-
-	// Add CORS if enabled
+	// Apply middleware in reverse order (innermost first)
 	if cfg.API.CorsEnabled {
-		router.Use(middleware.CorsMiddleware(cfg.API.AllowedOrigins))
+		handler = middleware.Cors(handler, cfg.API.AllowedOrigins)
 	}
+	handler = middleware.RecoveryMiddleware(handler)
+	handler = middleware.RequestIDMiddleware(handler)
 
-	// Add middleware to track in-flight requests
-	router.Use(func(c *gin.Context) {
+	// Track in-flight requests (outermost)
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		defer wg.Done()
-		c.Next()
+		handler.ServeHTTP(w, r)
 	})
 
-	// Add Swagger documentation
-	if env != "production" {
-		router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	}
-
 	// Setup routes
-	setupRoutes(router, authMiddleware)
+	setupRoutesMux(router, authMiddleware, userHandler, authHandler)
 
-	// Add health check endpoint
-	api.RegisterHealthRoutes(router)
+	// Health route
+	api.RegisterHealthRoutesMux(router)
 
 	// Create server
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.Server.Port),
-		Handler:      router,
+		Handler:      handler,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 		IdleTimeout:  cfg.Server.IdleTimeout,
@@ -173,12 +171,7 @@ func main() {
 	// Start server
 	go func() {
 		logger.Info("Server is starting", zap.String("port", cfg.Server.Port))
-		var err error
-		if cfg.Server.SSLEnabled {
-			err = srv.ListenAndServeTLS(cfg.Server.SSLCertFile, cfg.Server.SSLKeyFile)
-		} else {
-			err = srv.ListenAndServe()
-		}
+		err := srv.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Failed to start server", zap.Error(err))
 		}
@@ -229,24 +222,10 @@ func main() {
 }
 
 // setupRoutes configures all the routes for the application
-func setupRoutes(r *gin.Engine, authMiddleware *middleware.AuthMiddleware) {
-	// Public routes
-	v1 := r.Group("/api/v1")
-	{
-		// Auth routes
-		_ = v1.Group("/auth") // Using _ to silence unused variable warning
+func setupRoutesMux(r *mux.Router, authMiddleware *middleware.AuthMiddleware, userHandler *api.UserHandler, authHandler *api.AuthHandler) {
+	// Register auth routes
+	authHandler.RegisterAuthRoutes(r)
 
-		// Protected routes
-		protected := v1.Group("/")
-		protected.Use(authMiddleware.AuthRequired())
-		{
-			// User routes
-			_ = protected.Group("/users") // Using _ to silence unused variable warning
-
-			// Admin routes
-			adminGroup := protected.Group("/admin")
-			adminGroup.Use(authMiddleware.RoleRequired("admin"))
-			_ = adminGroup // Using _ to silence unused variable warning
-		}
-	}
+	// Register user routes
+	userHandler.RegisterUserRoutes(r, authMiddleware)
 }

@@ -13,8 +13,6 @@ services:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres?sslmode=disable
       - LOG_LEVEL=debug
       - LOG_JSON=false
-      - METRICS_ENABLED=true
-      - METRICS_PATH=/metrics
     depends_on:
       - db
     volumes:
@@ -40,31 +38,6 @@ services:
       timeout: 5s
       retries: 5
 
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    networks:
-      - app-network
-    depends_on:
-      - app
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana_data:/var/lib/grafana
-    networks:
-      - app-network
-    depends_on:
-      - prometheus
 
   postgres:
     image: postgres:16-alpine
@@ -82,23 +55,9 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
 volumes:
   postgres_data:
-  prometheus_data:
-  grafana_data:
-  redis_data:
 
 networks:
   app-network:

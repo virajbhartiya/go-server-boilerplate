@@ -7,8 +7,8 @@ A modern, feature-rich Go server boilerplate following clean architecture princi
 - **Clean Architecture**: Domain-driven design with clear separation of concerns
 - **GORM Integration**: Object-relational mapping with PostgreSQL
 - **JWT Authentication**: Secure authentication with role-based access control
-- **Middleware**: Request ID, rate limiting, CORS, recovery, etc.
-- **Configuration**: TOML config files with environment variable overrides
+- **Middleware**: Request ID, CORS, recovery
+- **Configuration**: Environment variables only (with `.env` support)
 - **Error Handling**: Standardized error handling with HTTP status codes
 - **Validation**: Request validation using the validator package
 - **Logging**: Structured logging with zap
@@ -27,24 +27,19 @@ A modern, feature-rich Go server boilerplate following clean architecture princi
 │   │   ├── domain/          # Domain models and business logic
 │   │   ├── ports/           # Input/output interfaces
 │   │   └── services/        # Business logic implementation
-│   ├── config/              # Configuration management
+│   ├── config/              # Configuration management (env-driven)
 │   ├── infrastructure/      # External systems integration
 │   │   ├── auth/            # Authentication implementation
-│   │   ├── cache/           # Caching implementation
 │   │   ├── database/        # Database adapters and migrations
 │   │   │   └── models/      # GORM model definitions
-│   │   ├── jobs/            # Background job processing
-│   │   └── server/          # HTTP server implementation
+│   │   └── jobs/            # Background job processing
 │   ├── interfaces/          # Interface adapters
-│   │   ├── api/             # API controllers and routing
-│   │   ├── events/          # Event handlers
-│   │   └── workers/         # Background worker handlers
+│   │   └── api/             # API controllers and routing
 │   └── pkg/                 # Shared utilities
 │       ├── logger/          # Logging utilities
 │       ├── middleware/      # HTTP middleware
 │       ├── validator/       # Request validation
 │       └── errors/          # Error handling
-├── configs/                 # Configuration files (TOML)
 ├── .env.example             # Example environment variables
 └── go.mod                   # Go module definition
 ```
@@ -72,27 +67,20 @@ cd go-server-boilerplate
 go mod download
 ```
 
-3. Copy and edit the example config:
-
-```bash
-cp configs/config.example.toml configs/config.toml
-# Optionally, create configs/development.toml or configs/production.toml for environment-specific overrides
-```
-
-4. (Optional) Copy and edit the example .env file:
+3. Copy and edit the example .env file:
 
 ```bash
 cp .env.example .env
-# Environment variables in .env will override TOML config values
+# Update values as needed; the app reads configuration from the environment
 ```
 
-5. Start dependencies (PostgreSQL and Redis):
+4. Start dependencies (PostgreSQL):
 
 ```bash
-docker-compose up -d postgres redis
+docker-compose up -d postgres
 ```
 
-6. Run the application:
+5. Run the application:
 
 ```bash
 go run cmd/api/main.go
@@ -115,70 +103,7 @@ make migrate-down # Rollback database migrations
 
 ## Configuration
 
-Configuration is managed via TOML files in the `configs/` directory. The application loads `configs/config.toml` by default, then `configs/{ENVIRONMENT}.toml` if it exists, and finally overrides with environment variables (from the environment or `.env` file if loaded).
-
-Example `configs/config.example.toml`:
-
-```toml
-[server]
-port = "8080"
-environment = "development"
-shutdown_timeout = "10s"
-read_timeout = "5s"
-write_timeout = "5s"
-idle_timeout = "60s"
-ssl_enabled = false
-ssl_cert_file = ""
-ssl_key_file = ""
-
-[database]
-url = "postgresql://postgres:postgres@localhost:5432/app?sslmode=disable"
-max_connections = 10
-max_idle_connections = 5
-conn_max_lifetime = "1h"
-auto_migrate = true
-log_queries = false
-prepared_statements = false
-
-[gorm]
-log_level = "info"
-prepared_stmt = false
-skip_default_transaction = false
-
-[api]
-cors_enabled = true
-allowed_origins = ["*"]
-rate_limiter_enabled = false
-rate_limit_requests = 100
-rate_limit_duration = "1m"
-
-[auth]
-jwt_secret = "your_jwt_secret"
-jwt_expiry_hours = 24
-refresh_token_enabled = true
-refresh_token_expiry = "168h"
-
-[logging]
-level = "info"
-format = "console"
-caller_enabled = false
-stacktrace_enabled = false
-
-[cache]
-enabled = true
-redis_url = "redis://localhost:6379/0"
-default_ttl = "1h"
-
-[features]
-tracing = false
-background_jobs = false
-
-[redis]
-host = "localhost"
-port = "6379"
-password = ""
-db = 0
-```
+Configuration is managed via environment variables only. See `.env.example` for all supported keys and sensible defaults. You can export variables in your shell or place them in a `.env` file (loaded by the app on startup).
 
 ## Authentication
 
@@ -201,10 +126,10 @@ docker build -t go-server-boilerplate .
 docker run -p 8080:8080 --env-file .env go-server-boilerplate
 ```
 
-Alternatively, use Docker Compose:
+Alternatively, use Docker Compose (to start Postgres):
 
 ```bash
-docker-compose up
+docker-compose up -d postgres
 ```
 
 ## License

@@ -1,10 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
 )
 
 // HealthResponse represents the health check response structure
@@ -22,9 +23,9 @@ type Service struct {
 	Error  string `json:"error,omitempty" example:""`
 }
 
-// RegisterHealthRoutes registers health check routes
-func RegisterHealthRoutes(router *gin.Engine) {
-	router.GET("/health", HealthCheck)
+// RegisterHealthRoutesMux registers health check routes on Gorilla Mux
+func RegisterHealthRoutesMux(router *mux.Router) {
+	router.HandleFunc("/health", HealthCheck).Methods(http.MethodGet)
 }
 
 // HealthCheck godoc
@@ -36,7 +37,7 @@ func RegisterHealthRoutes(router *gin.Engine) {
 // @Success 200 {object} HealthResponse
 // @Failure 503 {object} HealthResponse
 // @Router /health [get]
-func HealthCheck(c *gin.Context) {
+func HealthCheck(w http.ResponseWriter, r *http.Request) {
 	health := HealthResponse{
 		Status:    "ok",
 		Timestamp: time.Now(),
@@ -63,10 +64,14 @@ func HealthCheck(c *gin.Context) {
 	for _, service := range health.Services {
 		if service.Status != "ok" {
 			health.Status = "degraded"
-			c.JSON(http.StatusServiceUnavailable, health)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(health)
 			return
 		}
 	}
 
-	c.JSON(http.StatusOK, health)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(health)
 }

@@ -1,12 +1,10 @@
 package middleware
 
 import (
-	"strings"
-
-	"github.com/gin-gonic/gin"
-
+	"context"
 	"go-server-boilerplate/internal/infrastructure/auth"
-	"go-server-boilerplate/internal/pkg/errors"
+	"net/http"
+	"strings"
 )
 
 // AuthMiddleware represents the authentication middleware
@@ -16,109 +14,76 @@ type AuthMiddleware struct {
 
 // NewAuthMiddleware creates a new authentication middleware
 func NewAuthMiddleware(jwtManager *auth.JWTManager) *AuthMiddleware {
-	return &AuthMiddleware{
-		jwtManager: jwtManager,
-	}
+	return &AuthMiddleware{jwtManager: jwtManager}
 }
 
-// AuthRequired middleware requires valid JWT token
-func (m *AuthMiddleware) AuthRequired() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Get authorization header
-		authHeader := c.GetHeader("Authorization")
+type contextKey string
+
+const (
+	contextKeyUserID contextKey = "userID"
+	contextKeyRole   contextKey = "role"
+)
+
+// AuthRequiredMiddleware validates JWT and injects claims into context
+func (m *AuthMiddleware) AuthRequiredMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			c.AbortWithStatusJSON(errors.Unauthorized("missing authorization header").StatusCode, gin.H{
-				"error": "missing authorization header",
-			})
+			http.Error(w, "missing authorization header", http.StatusUnauthorized)
 			return
 		}
-
-		// Check Bearer token format
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.AbortWithStatusJSON(errors.Unauthorized("invalid authorization format").StatusCode, gin.H{
-				"error": "invalid authorization format",
-			})
+			http.Error(w, "invalid authorization format", http.StatusUnauthorized)
 			return
 		}
-
-		// Validate token
 		claims, err := m.jwtManager.ValidateToken(parts[1])
 		if err != nil {
-			c.AbortWithStatusJSON(errors.Unauthorized("invalid token: "+err.Error()).StatusCode, gin.H{
-				"error": "invalid token",
-			})
+			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
-
-		// Store claims in context for later use
-		c.Set("userID", claims.UserID)
-		c.Set("role", claims.Role)
-		c.Set("claims", claims)
-
-		c.Next()
-	}
+		ctx := context.WithValue(r.Context(), contextKeyUserID, claims.UserID)
+		ctx = context.WithValue(ctx, contextKeyRole, claims.Role)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-// RoleRequired middleware requires specific role
-func (m *AuthMiddleware) RoleRequired(roles ...string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// First apply the AuthRequired middleware
-		m.AuthRequired()(c)
-
-		// Check if the request was aborted by the AuthRequired middleware
-		if c.IsAborted() {
-			return
-		}
-
-		// Get the role from context
-		role, exists := c.Get("role")
-		if !exists {
-			c.AbortWithStatusJSON(errors.Forbidden("role not found in token").StatusCode, gin.H{
-				"error": "role not found in token",
-			})
-			return
-		}
-
-		// Check if the user has one of the required roles
-		roleStr, ok := role.(string)
-		if !ok {
-			c.AbortWithStatusJSON(errors.Forbidden("invalid role format").StatusCode, gin.H{
-				"error": "invalid role format",
-			})
-			return
-		}
-
-		// Check if the user has one of the required roles
-		for _, r := range roles {
-			if r == roleStr {
-				c.Next()
-				return
+// RoleRequiredMiddleware enforces one of the given roles
+func (m *AuthMiddleware) RoleRequiredMiddleware(next http.Handler, roles ...string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		roleVal := r.Context().Value(contextKeyRole)
+		role, _ := roleVal.(string)
+		allowed := false
+		for _, rr := range roles {
+			if rr == role {
+				allowed = true
+				break
 			}
 		}
-
-		c.AbortWithStatusJSON(errors.Forbidden("insufficient permissions").StatusCode, gin.H{
-			"error": "insufficient permissions",
-		})
-	}
+		if !allowed {
+			http.Error(w, "insufficient permissions", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
-// ExtractUserID extracts the user ID from the context
-func ExtractUserID(c *gin.Context) (uint, bool) {
-	userID, exists := c.Get("userID")
-	if !exists {
+// ExtractUserIDFromContext returns user id from context
+func ExtractUserIDFromContext(ctx context.Context) (uint, bool) {
+	v := ctx.Value(contextKeyUserID)
+	if v == nil {
 		return 0, false
 	}
-	id, ok := userID.(uint)
+	id, ok := v.(uint)
 	return id, ok
 }
 
-// ExtractRole extracts the role from the context
-func ExtractRole(c *gin.Context) (string, bool) {
-	role, exists := c.Get("role")
-	if !exists {
+// ExtractRoleFromContext returns role from context
+func ExtractRoleFromContext(ctx context.Context) (string, bool) {
+	v := ctx.Value(contextKeyRole)
+	if v == nil {
 		return "", false
 	}
-	roleStr, ok := role.(string)
-	return roleStr, ok
+	s, ok := v.(string)
+	return s, ok
 }

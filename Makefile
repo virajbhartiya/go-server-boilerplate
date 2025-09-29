@@ -51,8 +51,8 @@ fmt: ## Format code
 lint: ## Run linter
 	golangci-lint run
 
-docker-up: ## Start Docker containers (PostgreSQL and Redis)
-	$(DOCKER_COMPOSE) up -d --build postgres redis
+docker-up: ## Start Docker containers (PostgreSQL)
+	$(DOCKER_COMPOSE) up -d --build postgres
 
 docker-down: ## Stop Docker containers
 	$(DOCKER_COMPOSE) down

@@ -1,42 +1,38 @@
 package middleware
 
 import (
-	"github.com/gin-gonic/gin"
+	"context"
+	"net/http"
+
 	"github.com/google/uuid"
 )
 
 const (
-	// RequestIDHeader is the header key for the request ID
 	RequestIDHeader = "X-Request-ID"
-
-	// RequestIDContextKey is the context key for the request ID
-	RequestIDContextKey = "request_id"
 )
 
-// RequestID middleware adds a unique request ID to each request
-func RequestID() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Check if request ID already exists in the request header
-		requestID := c.GetHeader(RequestIDHeader)
+type requestIDContextKeyType string
 
-		// If not, generate a new one
+const requestIDContextKey requestIDContextKeyType = "request_id"
+
+// RequestIDMiddleware attaches a request ID to context and response
+func RequestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := r.Header.Get(RequestIDHeader)
 		if requestID == "" {
 			requestID = uuid.New().String()
 		}
-
-		// Set request ID in the context and response header
-		c.Set(RequestIDContextKey, requestID)
-		c.Header(RequestIDHeader, requestID)
-
-		c.Next()
-	}
+		w.Header().Set(RequestIDHeader, requestID)
+		ctx := context.WithValue(r.Context(), requestIDContextKey, requestID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-// GetRequestID returns the request ID from the context
-func GetRequestID(c *gin.Context) string {
-	if requestID, exists := c.Get(RequestIDContextKey); exists {
-		if id, ok := requestID.(string); ok {
-			return id
+// GetRequestIDFromContext returns the request ID from context
+func GetRequestIDFromContext(ctx context.Context) string {
+	if v := ctx.Value(requestIDContextKey); v != nil {
+		if s, ok := v.(string); ok {
+			return s
 		}
 	}
 	return ""
